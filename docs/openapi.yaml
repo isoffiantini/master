@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
   title: Zara Wishlist API
-  description: API para gestión de múltiples wishlists - Iteración 2
-  version: 2.0.0
+  description: API para gestión de múltiples wishlists - MVP
+  version: 1.0.0
   contact:
     name: Zara Ecommerce Team
     email: api@zara.com
 
 servers:
-  - url: https://api.zara.com/v2
+  - url: https://api.zara.com/v1
     description: Production server
 
 components:
