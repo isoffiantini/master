@@ -1,15 +1,17 @@
 openapi: 3.0.3
 info:
-  title: Zara Wishlist API
-  description: API para gestión básica de wishlist única - MVP
-  version: 1.0.0
+  title: Zara Wishlist API v2
+  description: API completa para gestión de wishlists con múltiples funcionalidades
+  version: 2.0.0
   contact:
     name: Zara Ecommerce Team
     email: api@zara.com
 
 servers:
-  - url: https://api.zara.com/v1
+  - url: https://api.zara.com/v2
     description: Production server
+  - url: https://staging-api.zara.com/v2
+    description: Staging server
 
 components:
   securitySchemes:
@@ -61,6 +63,10 @@ components:
         available:
           type: boolean
           example: true
+        url:
+          type: string
+          format: uri
+          example: "https://zara.com/vestido-midi-satinado"
 
     WishlistItem:
       type: object
@@ -101,12 +107,22 @@ components:
           example: "user_456"
         name:
           type: string
-          example: "Mi Lista de Deseos"
+          example: "Lista de Boda"
           maxLength: 100
         description:
           type: string
-          example: "Productos que me gustaría comprar pronto"
+          example: "Regalos para nuestra boda en junio"
           maxLength: 500
+        is_public:
+          type: boolean
+          example: false
+        share_url:
+          type: string
+          format: uri
+          example: "https://zara.com/share/wish_abc123"
+        share_token:
+          type: string
+          example: "abc123xyz"
         items:
           type: array
           items:
@@ -140,6 +156,9 @@ components:
           type: string
           maxLength: 500
           example: "Productos que me gustaría comprar pronto"
+        is_public:
+          type: boolean
+          example: false
 
     UpdateWishlistRequest:
       type: object
@@ -153,6 +172,9 @@ components:
           type: string
           maxLength: 500
           example: "Descripción actualizada"
+        is_public:
+          type: boolean
+          example: true
 
     AddItemToWishlistRequest:
       type: object
@@ -198,6 +220,21 @@ components:
           maxLength: 200
           example: "Cambiar a talla L"
 
+    ShareWishlistResponse:
+      type: object
+      properties:
+        share_url:
+          type: string
+          format: uri
+          example: "https://zara.com/share/abc123"
+        share_token:
+          type: string
+          example: "abc123"
+        expires_at:
+          type: string
+          format: date-time
+          example: "2024-02-15T23:59:59Z"
+
     ExportToCartRequest:
       type: object
       properties:
@@ -225,6 +262,41 @@ components:
             type: string
           example: ["cart_123", "cart_456"]
 
+    WishlistMetrics:
+      type: object
+      properties:
+        total_wishlists:
+          type: integer
+          example: 15000
+        active_wishlists:
+          type: integer
+          example: 12000
+        total_items:
+          type: integer
+          example: 45000
+        avg_items_per_wishlist:
+          type: number
+          format: float
+          example: 3.0
+        most_popular_products:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: string
+              product_name:
+                type: string
+              wishlist_count:
+                type: integer
+        shared_wishlists_count:
+          type: integer
+          example: 2500
+        conversion_rate:
+          type: number
+          format: float
+          example: 0.15
+
     ApiResponse:
       type: object
       properties:
@@ -237,12 +309,12 @@ components:
 
 paths:
   # =============================================
-  # WISHLIST MANAGEMENT - CRUD (ÚNICA)
+  # WISHLIST MANAGEMENT - CRUD
   # =============================================
-  /wishlist:
+  /wishlists:
     post:
-      summary: Crear wishlist única
-      description: Crea la wishlist única del usuario con nombre y descripción
+      summary: Crear nueva wishlist
+      description: Crea una nueva wishlist con nombre, descripción y configuración
       security:
         - bearerAuth: []
       requestBody:
@@ -266,13 +338,40 @@ paths:
         '400':
           description: Solicitud inválida
         '409':
-          description: El usuario ya tiene una wishlist
+          description: Límite de wishlists alcanzado
 
     get:
-      summary: Obtener wishlist del usuario
-      description: Retorna la wishlist única del usuario con todos sus items
+      summary: Obtener todas las wishlists del usuario
+      description: Retorna todas las wishlists del usuario autenticado
       security:
         - bearerAuth: []
+      responses:
+        '200':
+          description: Wishlists obtenidas exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wishlists:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Wishlist'
+                  total_count:
+                    type: integer
+
+  /wishlists/{wishlist_id}:
+    get:
+      summary: Obtener wishlist específica
+      description: Retorna una wishlist específica con todos sus items
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: wishlist_id
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         '200':
           description: Wishlist obtenida exitosamente
@@ -281,13 +380,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Wishlist'
         '404':
-          description: El usuario no tiene wishlist
+          description: Wishlist no encontrada
 
     put:
       summary: Actualizar wishlist
-      description: Actualiza el nombre y descripción de la wishlist del usuario
+      description: Actualiza el nombre, descripción y configuración de una wishlist
       security:
         - bearerAuth: []
+      parameters:
+        - name: wishlist_id
+          in: path
+          required: true
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -304,9 +409,15 @@ paths:
 
     delete:
       summary: Eliminar wishlist
-      description: Elimina permanentemente la wishlist del usuario y todos sus items
+      description: Elimina permanentemente una wishlist y todos sus items
       security:
         - bearerAuth: []
+      parameters:
+        - name: wishlist_id
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         '200':
           description: Wishlist eliminada exitosamente
@@ -319,14 +430,82 @@ paths:
                 message: "Wishlist eliminada con 5 productos"
 
   # =============================================
-  # WISHLIST ITEMS MANAGEMENT
+  # WISHLIST SHARING
   # =============================================
-  /wishlist/items:
+  /wishlists/{wishlist_id}/share:
     post:
-      summary: Añadir item a wishlist
-      description: Añade un producto a la wishlist del usuario (máximo 50 items)
+      summary: Compartir wishlist
+      description: Genera una URL corta para compartir la wishlist
       security:
         - bearerAuth: []
+      parameters:
+        - name: wishlist_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: URL de compartir generada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareWishlistResponse'
+
+    delete:
+      summary: Desactivar compartir wishlist
+      description: Invalida la URL de compartir existente
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: wishlist_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Compartir desactivado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /wishlists/shared/{share_token}:
+    get:
+      summary: Obtener wishlist compartida
+      description: Obtiene una wishlist compartida usando el token (sin autenticación)
+      parameters:
+        - name: share_token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Wishlist compartida obtenida exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Wishlist'
+        '404':
+          description: Wishlist no encontrada o enlace expirado
+
+  # =============================================
+  # WISHLIST ITEMS MANAGEMENT
+  # =============================================
+  /wishlists/{wishlist_id}/items:
+    post:
+      summary: Añadir item a wishlist
+      description: Añade un producto a la wishlist (máximo 50 items por wishlist)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: wishlist_id
+          in: path
+          required: true
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -348,16 +527,20 @@ paths:
                   current_count: 15
         '400':
           description: Límite de 50 items alcanzado
-        '404':
-          description: El usuario no tiene wishlist
         '409':
           description: Producto ya existe en la wishlist
 
     get:
-      summary: Obtener items de la wishlist
-      description: Retorna todos los items de la wishlist del usuario
+      summary: Obtener items de wishlist
+      description: Retorna todos los items de una wishlist específica
       security:
         - bearerAuth: []
+      parameters:
+        - name: wishlist_id
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         '200':
           description: Items obtenidos exitosamente
@@ -372,14 +555,18 @@ paths:
                       $ref: '#/components/schemas/WishlistItem'
                   total_count:
                     type: integer
-        '404':
-          description: El usuario no tiene wishlist
 
     delete:
       summary: Eliminar todos los items de la wishlist
       description: Vacía completamente la wishlist pero la mantiene activa
       security:
         - bearerAuth: []
+      parameters:
+        - name: wishlist_id
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         '200':
           description: Todos los items eliminados exitosamente
@@ -391,13 +578,18 @@ paths:
                 success: true
                 message: "15 productos eliminados de la wishlist"
 
-  /wishlist/items/{item_id}:
+  /wishlists/{wishlist_id}/items/{item_id}:
     put:
       summary: Actualizar item de wishlist
-      description: Modifica cantidad, talla, color o notas de un item específico
+      description: Modifica cantidad, talla, color o notas de un item
       security:
         - bearerAuth: []
       parameters:
+        - name: wishlist_id
+          in: path
+          required: true
+          schema:
+            type: string
         - name: item_id
           in: path
           required: true
@@ -416,15 +608,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
-        '404':
-          description: Item no encontrado en la wishlist
 
     delete:
       summary: Eliminar item específico de wishlist
-      description: Elimina un producto específico de la wishlist del usuario
+      description: Elimina un producto específico de la wishlist
       security:
         - bearerAuth: []
       parameters:
+        - name: wishlist_id
+          in: path
+          required: true
+          schema:
+            type: string
         - name: item_id
           in: path
           required: true
@@ -441,12 +636,18 @@ paths:
   # =============================================
   # EXPORT TO CART
   # =============================================
-  /wishlist/export-to-cart:
+  /wishlists/{wishlist_id}/export-to-cart:
     post:
       summary: Exportar items al carrito
       description: Exporta uno, varios o todos los items de la wishlist al carrito
       security:
         - bearerAuth: []
+      parameters:
+        - name: wishlist_id
+          in: path
+          required: true
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -460,5 +661,73 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ExportToCartResponse'
-        '404':
-          description: El usuario no tiene wishlist
+
+  # =============================================
+  # METRICS & ANALYTICS
+  # =============================================
+  /wishlists/metrics:
+    get:
+      summary: Obtener métricas de wishlists
+      description: Endpoint para métricas agregadas de uso de wishlists
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Fecha de inicio para el reporte
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Fecha de fin para el reporte
+        - name: metric_type
+          in: query
+          schema:
+            type: string
+            enum: [usage, conversion, popular_products]
+          description: Tipo de métrica a obtener
+      responses:
+        '200':
+          description: Métricas obtenidas exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WishlistMetrics'
+
+  /wishlists/{wishlist_id}/metrics:
+    get:
+      summary: Obtener métricas de wishlist específica
+      description: Métricas detalladas para una wishlist específica
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: wishlist_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Métricas obtenidas exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  view_count:
+                    type: integer
+                    example: 150
+                  share_count:
+                    type: integer
+                    example: 25
+                  conversion_count:
+                    type: integer
+                    example: 8
+                  most_viewed_items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WishlistItem'
